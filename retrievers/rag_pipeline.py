@@ -14,7 +14,8 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from utils.logger import get_logger
-openai_key = os.getenv("OPENAI_API_KEY")  # This should work on Streamlit Cloud
+import streamlit as st
+openai_key = st.secrets.get("OPENAI_API_KEY")
 
 
 logger = get_logger("RAGPipeline")
@@ -32,8 +33,8 @@ SCORE_THRESHOLD = 0.1
 def load_rag_pipeline():
     logger.info("🔁 Loading RAG pipeline...")
 
-    if not os.getenv("OPENAI_API_KEY") or not os.getenv("COHERE_API_KEY"):
-        logger.error("API keys missing in environment.")
+    if not st.secrets.get("OPENAI_API_KEY") or not st.secrets.get("COHERE_API_KEY"):
+        logger.error("API keys missing in Streamlit secrets.")
         return None
     if not os.path.exists(PERSIST_DIR):
         logger.error(f"Chroma DB not found at {PERSIST_DIR}")
@@ -66,7 +67,8 @@ def load_rag_pipeline():
     cohere_reranker = CohereRerank(
         model=RERANK_MODEL,
         top_n=RETURN_K,
-        cohere_api_key=os.getenv("COHERE_API_KEY")
+        cohere_api_key=st.secrets.get("COHERE_API_KEY")
+
     )
 
     compression = ContextualCompressionRetriever(
