@@ -20,7 +20,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 # ✅ Load pipeline
 from retrievers.rag_pipeline import load_rag_pipeline
 
-st.title("🤖 AI Issue Resolution Assistant")
+st.title("🤖 AI-Issue Resolution Assistant")
 st.info("Chatbot uses SAP EWM logs to provide resolution summaries.")
 
 # ✅ Confirm required files and keys
