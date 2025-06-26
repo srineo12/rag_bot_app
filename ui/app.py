@@ -16,6 +16,9 @@ st.title("🤖 AI Issue Resolution Assistant")
 st.info("Chatbot uses SAP EWM logs to provide resolution summaries.")
 
 # --- Load RAG pipeline ---
+st.write("✅ Keys Found:", st.secrets.get("OPENAI_API_KEY") is not None, st.secrets.get("COHERE_API_KEY") is not None)
+st.write("✅ File Exists:", os.path.exists("data/Issue Log.xlsx"))
+
 result = load_rag_pipeline()
 if result is None:
     st.error("Chatbot not available. API keys or database might be missing.")
