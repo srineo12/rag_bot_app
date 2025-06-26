@@ -16,7 +16,13 @@ st.title("🤖 AI Issue Resolution Assistant")
 st.info("Chatbot uses SAP EWM logs to provide resolution summaries.")
 
 # --- Load RAG pipeline ---
-qa_chain, llm = load_rag_pipeline()
+result = load_rag_pipeline()
+if result is None:
+    st.error("Chatbot not available. API keys or database might be missing.")
+    st.stop()
+
+qa_chain, llm = result
+
 
 # --- Session state for history ---
 if "messages" not in st.session_state:
