@@ -2,23 +2,32 @@ import os
 import sys
 import re
 import streamlit as st
+
+# ✅ Must be first Streamlit command
+st.set_page_config(page_title="AI Issue Resolution Assistant", page_icon="🤖", layout="wide")
+
+# ✅ Show API key checks (for debug)
+st.write("🔐 OPENAI key found:", "OPENAI_API_KEY" in st.secrets)
+st.write("🔐 COHERE key found:", "COHERE_API_KEY" in st.secrets)
+
+# ✅ Load environment if needed
 from dotenv import load_dotenv
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from retrievers.rag_pipeline import load_rag_pipeline
-
-# --- Load environment ---
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-# --- Streamlit setup ---
-st.set_page_config(page_title="AI Issue Resolution Assistant", page_icon="🤖", layout="wide")
+# ✅ Add project root to import path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+# ✅ Load pipeline
+from retrievers.rag_pipeline import load_rag_pipeline
+
 st.title("🤖 AI Issue Resolution Assistant")
 st.info("Chatbot uses SAP EWM logs to provide resolution summaries.")
 
-# --- Load RAG pipeline ---
+# ✅ Confirm required files and keys
 st.write("✅ Keys Found:", st.secrets.get("OPENAI_API_KEY") is not None, st.secrets.get("COHERE_API_KEY") is not None)
 st.write("✅ File Exists:", os.path.exists("data/Issue Log.xlsx"))
 
+# ✅ Load RAG pipeline
 result = load_rag_pipeline()
 if result is None:
     st.error("Chatbot not available. API keys or database might be missing.")
@@ -26,17 +35,16 @@ if result is None:
 
 qa_chain, llm = result
 
-
-# --- Session state for history ---
+# ✅ Initialize session state for chat
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "How can I help you today?"}]
 
-# --- Display past messages ---
+# ✅ Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"], unsafe_allow_html=True)
 
-# --- User input ---
+# ✅ Handle user input
 if prompt := st.chat_input("Ask about an issue..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -44,56 +52,45 @@ if prompt := st.chat_input("Ask about an issue..."):
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            if not qa_chain:
-                response = "🚫 Chatbot is not available due to configuration error."
+            result = qa_chain.invoke({"query": prompt})
+            docs = result.get("source_documents", [])
+
+            if not docs:
+                response = "⚠️ No relevant matches found. Try rephrasing your question."
             else:
-                result = qa_chain.invoke({"query": prompt})
-                docs = result.get("source_documents", [])
+                response = ""
+                for i, doc in enumerate(docs, start=1):
+                    meta = doc.metadata
+                    ticket_no = meta.get("Number", "N/A")
+                    resolved = meta.get("Resolved", "N/A")
+                    resolved_by = meta.get("Resolved_by", "N/A")
+                    score = round(meta.get("relevance_score", 0.0), 2)
 
-                if not docs:
-                    response = "⚠️ No relevant matches found. Try rephrasing your question."
-                else:
-                    response = ""
-                    for i, doc in enumerate(docs, start=1):
-                        meta = doc.metadata
-                        ticket_no = meta.get("Number", "N/A")
-                        resolved = meta.get("Resolved", "N/A")
-                        resolved_by = meta.get("Resolved_by", "N/A")
-                        score = round(meta.get("relevance_score", 0.0), 2)
+                    trimmed_content = doc.page_content.strip()
 
-                        trimmed_content = doc.page_content.strip()
+                    # Default fallback
+                    first_paragraph = trimmed_content
+                    second_paragraph = ""
 
-                        # Default fallback
-                        first_paragraph = trimmed_content
-                        second_paragraph = ""
-
-                        try:
-                            polish_prompt = f"""Please polish the following SAP incident summary by fixing grammar, clarity, and structure. Split it into two sections: 
+                    try:
+                        polish_prompt = f"""Please polish the following SAP incident summary by fixing grammar, clarity, and structure. Split it into two sections: 
 1. Issue Description 
 2. Resolution 
 Make both sections clear and easy to understand. Do not repeat or reprint the incident number:
 {trimmed_content}"""
-                            polished = llm.invoke(polish_prompt).content.strip()
+                        polished = llm.invoke(polish_prompt).content.strip()
 
-                            # Attempt to split the polished result
-                            if "Resolution:" in polished:
-                                parts = polished.split("Resolution:", 1)
-                              
+                        if "Resolution:" in polished:
+                            parts = polished.split("Resolution:", 1)
+                            first_paragraph = re.sub(r"(?i)^issue description[:\s\-]*", "", parts[0]).strip()
+                            second_paragraph = re.sub(r"(?i)^resolution[:\s\-]*", "", parts[1]).strip()
+                        else:
+                            first_paragraph = polished.strip()
 
-                                first_paragraph = re.sub(r"\*{1,2}", "", parts[0]).strip()
-                                first_paragraph = re.sub(r"(?i)^issue description[:\s\-]*", "", first_paragraph).strip()
+                    except Exception as e:
+                        st.warning(f"⚠️ LLM polishing failed: {e}")
 
-                                second_paragraph = re.sub(r"\*{1,2}", "", parts[1]).strip()
-                                second_paragraph = re.sub(r"(?i)^resolution[:\s\-]*", "", second_paragraph).strip()
-
-                            else:
-                                first_paragraph = polished.strip()
-
-                        except Exception as e:
-                            st.warning(f"⚠️ LLM polishing failed: {e}")
-
-                        # Final HTML formatting
-                        response += f"""
+                    response += f"""
 <div style='margin-bottom: 20px; padding: 10px; border-bottom: 1px solid #ddd'>
   🆔 <strong>Incident Number:</strong> {ticket_no} |
   📅 <strong>Resolved On:</strong> {resolved} |
@@ -108,4 +105,3 @@ Make both sections clear and easy to understand. Do not repeat or reprint the in
 
         st.markdown(response, unsafe_allow_html=True)
         st.session_state.messages.append({"role": "assistant", "content": response})
-
