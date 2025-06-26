@@ -14,6 +14,8 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from utils.logger import get_logger
+openai_key = os.getenv("OPENAI_API_KEY")  # This should work on Streamlit Cloud
+
 
 logger = get_logger("RAGPipeline")
 
