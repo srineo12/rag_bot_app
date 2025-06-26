@@ -35,6 +35,9 @@ def load_rag_pipeline():
 
     st.write(f"✅ Keys: OPENAI: {openai_ok}, COHERE: {cohere_ok}")
     st.write(f"✅ Chroma DB exists: {db_ok}")
+    logger.debug(f"OPENAI: {st.secrets.get('OPENAI_API_KEY')}")
+    logger.debug(f"COHERE: {st.secrets.get('COHERE_API_KEY')}")
+    logger.debug(f"DB Path Exists: {os.path.exists(PERSIST_DIR)}")
 
     if not openai_ok or not cohere_ok:
         logger.error("API keys missing in Streamlit secrets.")

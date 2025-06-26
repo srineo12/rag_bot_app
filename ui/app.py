@@ -29,9 +29,10 @@ st.write("✅ File Exists:", os.path.exists("data/Issue Log.xlsx"))
 
 # ✅ Load RAG pipeline
 result = load_rag_pipeline()
-if result is None:
+if result is None or result[0] is None:
     st.error("Chatbot not available. API keys or database might be missing.")
     st.stop()
+
 
 qa_chain, llm = result
 
