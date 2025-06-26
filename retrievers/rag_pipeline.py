@@ -1,7 +1,8 @@
 import os
-import pdb; 
-
 from typing import List
+import pandas as pd
+import streamlit as st
+
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 from langchain_community.vectorstores import Chroma
@@ -13,10 +14,9 @@ from langchain_cohere import CohereRerank
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
-from utils.logger import get_logger
-import streamlit as st
-openai_key = st.secrets.get("OPENAI_API_KEY")
+from langchain_community.document_loaders import DataFrameLoader
 
+from utils.logger import get_logger
 
 logger = get_logger("RAGPipeline")
 
@@ -28,7 +28,7 @@ RERANK_MODEL = "rerank-english-v3.0"
 TOP_K = 10
 RETURN_K = 2
 SCORE_THRESHOLD = 0.1
-
+EXCEL_FILE = "data/Issue Log.xlsx"
 
 def load_rag_pipeline():
     logger.info("🔁 Loading RAG pipeline...")
@@ -36,25 +36,43 @@ def load_rag_pipeline():
     if not st.secrets.get("OPENAI_API_KEY") or not st.secrets.get("COHERE_API_KEY"):
         logger.error("API keys missing in Streamlit secrets.")
         return None
-    if not os.path.exists(PERSIST_DIR):
-        logger.error(f"Chroma DB not found at {PERSIST_DIR}")
+
+    if not os.path.exists(EXCEL_FILE):
+        logger.error(f"Excel file not found at {EXCEL_FILE}")
         return None
 
-    # --- Load components ---
-    logger.debug("🔌 Loading vectorstore, LLM, and embeddings...")
+    # --- Load Excel as documents ---
+    df = pd.read_excel(EXCEL_FILE)
+    if df.empty:
+        logger.error("Excel file is empty.")
+        return None
+
+    logger.debug("📄 Ingesting Excel issue log...")
+    loader = DataFrameLoader(
+        df,
+        page_content_column="Issue Description",
+        metadata_columns=["Number", "Caller", "Created", "Resolved", "Resolved by"]
+    )
+    docs = loader.load()
+
+    # --- Embed and index documents ---
     embeddings = OpenAIEmbeddings(model=EMBED_MODEL)
-    vectorstore = Chroma(persist_directory=PERSIST_DIR, embedding_function=embeddings)
+    vectorstore = Chroma.from_documents(
+        docs,
+        embedding=embeddings,
+        persist_directory=PERSIST_DIR
+    )
+
     llm = ChatOpenAI(model=LLM_MODEL, temperature=0, streaming=True)
 
     # --- Metadata-aware retriever ---
-    
-    logger.debug("📑 Building metadata-aware retriever...")
     metadata_fields = [
         AttributeInfo(name="Number", description="Incident number", type="string"),
         AttributeInfo(name="Caller", description="Issue reporter", type="string"),
         AttributeInfo(name="Created", description="Date issue was logged", type="string"),
     ]
     description = "SAP EWM issue resolution logs"
+
     self_query = SelfQueryRetriever.from_llm(
         llm=llm,
         vectorstore=vectorstore,
@@ -68,7 +86,6 @@ def load_rag_pipeline():
         model=RERANK_MODEL,
         top_n=RETURN_K,
         cohere_api_key=st.secrets.get("COHERE_API_KEY")
-
     )
 
     compression = ContextualCompressionRetriever(
@@ -76,45 +93,28 @@ def load_rag_pipeline():
         base_compressor=cohere_reranker
     )
 
-    # --- Custom filter by relevance ---
+    # --- Custom threshold filter ---
     class ThresholdRetriever(BaseRetriever):
         base_retriever: ContextualCompressionRetriever
         threshold: float
 
         def _get_relevant_documents(self, query: str, *, run_manager: CallbackManagerForRetrieverRun) -> List[Document]:
             logger.debug(f"Running retriever for query: {query}")
-
-            # Step 1: Pre-enrichment
             retrieved_docs = self.base_retriever.get_relevant_documents(query)
             for doc in retrieved_docs:
                 meta = doc.metadata
-                resolved_info = f"\n\n📅 Resolved On: {meta.get('Resolved', 'N/A')}\n👨‍💻 Resolved by: {meta.get('Resolved by', 'N/A')}"
-                doc.page_content += resolved_info
-            logger.debug(f"Enriched {len(retrieved_docs)} docs with metadata.")
+                doc.page_content += f"\n\n📅 Resolved On: {meta.get('Resolved', 'N/A')}\n👨‍💻 Resolved by: {meta.get('Resolved by', 'N/A')}"
 
-            # Step 2: Reranking
             docs = self.base_retriever.invoke(query, config={"callbacks": run_manager.get_child()})
-            for i, doc in enumerate(docs):
-                logger.debug(f"[After Rerank #{i+1}] Score: {doc.metadata.get('relevance_score', 0.0):.3f}, Number: {doc.metadata.get('Number', 'N/A')}")
-
-            logger.debug(f"Retrieved {len(docs)} docs before threshold filter")
-
-            # Step 3: Apply threshold
             filtered = [
                 doc for doc in docs
                 if doc.metadata.get("relevance_score", 0.0) >= self.threshold
             ]
-
-            for i, doc in enumerate(filtered):
-                logger.debug(f"[After Threshold #{i+1}] Score: {doc.metadata.get('relevance_score', 0.0):.3f}, Number: {doc.metadata.get('Number', 'N/A')}")
-
-            logger.debug(f"Returning {len(filtered)} docs after applying threshold {self.threshold}")
             return filtered
 
     final = ThresholdRetriever(base_retriever=compression, threshold=SCORE_THRESHOLD)
 
     # --- Prompt ---
-    logger.debug("📄 Loading prompt template from file...")
     prompt = PromptTemplate(
         template=open("prompts/qa_prompt.txt").read(),
         input_variables=["context", "question"]
@@ -129,4 +129,4 @@ def load_rag_pipeline():
     )
 
     logger.info("✅ RAG pipeline is ready.")
-    return chain,llm
+    return chain, llm
