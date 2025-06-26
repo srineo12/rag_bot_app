@@ -4,7 +4,7 @@ import re
 import streamlit as st
 
 # ✅ Must be first Streamlit command
-st.set_page_config(page_title="AI Issue Resolution Assistant", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="AI-Issue Resolution Assistant", page_icon="🤖", layout="wide")
 
 # ✅ Show API key checks (for debug)
 st.write("🔐 OPENAI key found:", "OPENAI_API_KEY" in st.secrets)
