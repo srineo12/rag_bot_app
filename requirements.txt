@@ -13,3 +13,4 @@ cohere
 
 # Optional utils
 pandas
+chromadb
