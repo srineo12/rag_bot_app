@@ -5,3 +5,4 @@ __pycache__/
 *.zip
 .env
 .env
+.streamlit/secrets.toml
